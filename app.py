@@ -2,100 +2,243 @@
 # Importando as bibliotecas necessárias
 import streamlit as st
 import pandas as pd
+import sqlite3
+from datetime import datetime
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-# Define o título da página, o ícone e o layout.
-# O layout "wide" faz com que o conteúdo principal ocupe toda a largura da tela.
 st.set_page_config(
-    page_title="Visualizador de Equipamentos - Municípios PR",
-    page_icon="⚡",
+    page_title="Registo de Ocorrências - Municípios PR",
+    page_icon="📝",
     layout="wide"
 )
 
+# --- ESTILO CSS PARA AJUSTAR A FONTE ---
+st.markdown("""
+    <style>
+    .main, .stTextInput, .stTextArea, .stSelectbox {
+        font-size: 14px !important;
+    }
+    .stMetric {
+        font-size: 16px !important;
+    }
+    h3 {
+        font-size: 20px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-# --- CARREGAMENTO DOS DADOS ---
-# Usamos o cache do Streamlit para carregar os dados apenas uma vez,
-# o que torna a aplicação muito mais rápida após o primeiro carregamento.
+
+# --- GESTÃO DA BASE DE DADOS SQLITE ---
+
+def init_db():
+    """
+    Inicializa a base de dados SQLite e cria a tabela 'chamados' se não existir.
+    """
+    conn = sqlite3.connect('chamados.db')
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS chamados (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            municipio TEXT,
+            imei1 TEXT,
+            imei2 TEXT,
+            marca TEXT,
+            modelo TEXT,
+            capacidade TEXT,
+            entrega TEXT,
+            local_uso TEXT,
+            situacao_equipamento TEXT,
+            patrimonio TEXT,
+            solicitante_nome TEXT,
+            solicitante_telefone TEXT,
+            tipo_problema TEXT,
+            relato_problema TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+
+def save_chamado(dados_equipamento, dados_formulario, municipio_col_name):
+    """
+    Guarda um novo chamado na base de dados.
+    """
+    conn = sqlite3.connect('chamados.db')
+    c = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    data_to_insert = (
+        now,
+        dados_equipamento[municipio_col_name],
+        str(dados_equipamento.get('IMEI1', '')),
+        str(dados_equipamento.get('IMEI2', '')),
+        dados_equipamento.get('Marca', ''),
+        dados_equipamento.get('Modelo', ''),
+        dados_equipamento.get('Capacidade', ''),
+        dados_equipamento.get('Entrega', ''),
+        dados_equipamento.get('Local de Uso', ''),
+        dados_equipamento.get('Situação', ''),
+        str(dados_equipamento.get('Patrimonio', '')),
+        dados_formulario['nome'],
+        dados_formulario['telefone'],
+        dados_formulario['tipo_problema'],
+        dados_formulario['relato']
+    )
+
+    c.execute('''
+        INSERT INTO chamados (
+            timestamp, municipio, imei1, imei2, marca, modelo, capacidade, 
+            entrega, local_uso, situacao_equipamento, patrimonio, 
+            solicitante_nome, solicitante_telefone, tipo_problema, relato_problema
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', data_to_insert)
+
+    conn.commit()
+    conn.close()
+
+
+# Inicializa a base de dados no início da execução
+init_db()
+
+
+# --- CARREGAMENTO DOS DADOS DA PLANILHA ---
 @st.cache_data
 def carregar_dados():
     """
-    Carrega os dados da planilha 'dados_equipamentos.csv'.
-    Retorna um DataFrame do Pandas.
+    Carrega os dados da planilha 'dados_equipamentos.csv', usando ponto e vírgula como separador.
     """
     try:
-        # Especificar o tipo de dados da coluna 'Patrimonio' como string durante a leitura
-        df = pd.read_csv('inventario_celulares.csv', sep=',', dtype={'Patrimonio': str})
+        df = pd.read_csv('dados_equipamentos.csv', sep=';', dtype=str)
+        df.columns = df.columns.str.strip()
         return df
     except FileNotFoundError:
-        # Se o ficheiro não for encontrado, exibe uma mensagem de erro e para a execução.
         st.error("Erro: O ficheiro 'dados_equipamentos.csv' não foi encontrado.")
-        st.info("Por favor, certifique-se de que o ficheiro de dados está na mesma pasta que o 'app.py'.")
+        return None
+    except Exception as e:
+        st.error(f"Ocorreu um erro inesperado ao carregar o ficheiro CSV: {e}")
         return None
 
 
-# Carrega os dados usando a função cacheada
-df = carregar_dados()
+df_equipamentos = carregar_dados()
 
 # --- INTERFACE DO UTILIZADOR (UI) ---
 
-# Título principal da aplicação
-st.title("⚡ Visualizador de Dados de Equipamentos (Otimizado)")
-st.markdown("### Uma visão rápida e detalhada dos equipamentos por município do Paraná")
+st.title("📝 Sistema de Registo de Ocorrências")
+st.markdown("### Selecione o equipamento e registe um novo chamado de serviço")
 
-# Só continua a execução se o DataFrame foi carregado com sucesso
-if df is not None:
-    # --- BARRA LATERAL (SIDEBAR) PARA FILTROS ---
-    st.sidebar.header("Filtros")
+if df_equipamentos is not None:
+    municipio_col_name = next((name for name in ['Município', 'Municipio'] if name in df_equipamentos.columns), None)
 
-    # Cria uma lista única e ordenada de municípios a partir da coluna 'Município'
-    lista_municipios = sorted(df['Município'].unique())
-
-    # Adiciona uma opção inicial para guiar o utilizador
-    opcoes_dropdown = ["Selecione um município..."] + lista_municipios
-
-    # Cria o dropdown (caixa de seleção) na barra lateral
-    municipio_selecionado = st.sidebar.selectbox(
-        "Escolha um município:",
-        options=opcoes_dropdown
-    )
-
-    # --- ÁREA DE CONTEÚDO PRINCIPAL ---
-
-    # Verifica se o utilizador já selecionou um município real
-    if municipio_selecionado != "Selecione um município...":
-
-        st.header(f"📍 Equipamentos em: {municipio_selecionado}")
-
-        # Filtra o DataFrame para mostrar apenas os dados do município selecionado
-        dados_filtrados = df[df['Município'] == municipio_selecionado]
-
-        # Verifica se há dados para o município selecionado
-        if not dados_filtrados.empty:
-            # --- OTIMIZAÇÃO PRINCIPAL ---
-            # Em vez de um loop lento, usamos st.dataframe que é altamente otimizado
-            # para exibir grandes volumes de dados de forma rápida e interativa.
-            st.dataframe(
-                dados_filtrados,
-                use_container_width=True,  # Faz a tabela ocupar a largura da página
-                hide_index=True  # Oculta o índice numérico à esquerda
-            )
-            st.success(f"Exibindo {len(dados_filtrados)} registos encontrados.")
-        else:
-            st.warning("Nenhum dado encontrado para este município.")
-
+    if not municipio_col_name:
+        st.error("ERRO CRÍTICO: A coluna de Municípios ('Município' ou 'Municipio') não foi encontrada no ficheiro.")
     else:
-        # Mensagem inicial enquanto nenhum município for selecionado
-        st.info("⬅️ Por favor, selecione um município na barra lateral para começar.")
+        # --- BARRA LATERAL (SIDEBAR) PARA FILTROS ---
+        st.sidebar.header("1. Filtro por Município")
 
-        # Exibe uma visão geral dos dados
-        st.subheader("Visão Geral dos Dados")
-        total_registros = len(df)
-        total_municipios = len(df['Município'].unique())
 
-        col1, col2 = st.columns(2)
-        col1.metric("Total de Registos", f"{total_registros}")
-        col2.metric("Total de Municípios com Dados", f"{total_municipios}")
+        def on_municipio_change():
+            if 'equipamento_selecionado_index' in st.session_state:
+                st.session_state.equipamento_selecionado_index = "Selecione..."
 
-        st.markdown("Amostra dos dados carregados:")
-        st.dataframe(df.head(10), use_container_width=True)
 
+        lista_municipios = ["Selecione..."] + sorted(df_equipamentos[municipio_col_name].unique())
+        st.sidebar.selectbox(
+            "Município:",
+            options=lista_municipios,
+            on_change=on_municipio_change,
+            key='municipio_selecionado_key'
+        )
+
+        # --- ÁREA DE CONTEÚDO PRINCIPAL ---
+        if st.session_state.get(
+                'municipio_selecionado_key') and st.session_state.municipio_selecionado_key != "Selecione...":
+            municipio_selecionado = st.session_state.municipio_selecionado_key
+            st.header(f"📍 Equipamentos em: {municipio_selecionado}")
+            dados_filtrados = df_equipamentos[df_equipamentos[municipio_col_name] == municipio_selecionado].copy()
+
+            if not dados_filtrados.empty:
+                st.markdown("---")
+                st.subheader("2. Selecione o Equipamento")
+
+                equipamento_map = {
+                    index: f"Património: {row.get('Patrimonio', 'N/A')} | Modelo: {row.get('Marca', '')} {row.get('Modelo', '')} | Local: {row.get('Local de Uso', '')}"
+                    for index, row in dados_filtrados.iterrows()
+                }
+
+                opcoes_indices = ["Selecione..."] + list(equipamento_map.keys())
+
+
+                def format_func(index):
+                    return "Selecione..." if index == "Selecione..." else equipamento_map.get(index, "Índice inválido")
+
+
+                st.selectbox(
+                    "Escolha o equipamento para abrir o chamado:",
+                    options=opcoes_indices,
+                    format_func=format_func,
+                    key='equipamento_selecionado_index'
+                )
+
+                # --- PASSO 3: FORMULÁRIO DE REGISTO ---
+                if st.session_state.get(
+                        'equipamento_selecionado_index') and st.session_state.equipamento_selecionado_index != "Selecione...":
+
+                    indice_selecionado = st.session_state.equipamento_selecionado_index
+                    dados_equip_final = dados_filtrados.loc[indice_selecionado]
+
+                    st.markdown("---")
+                    st.subheader("3. Preencha os Dados do Chamado")
+
+                    with st.form(key=f"form_{indice_selecionado}", clear_on_submit=True):
+                        st.markdown("**Detalhes do Equipamento Selecionado:**")
+
+                        # Exibe todos os campos do equipamento em duas colunas
+                        col1, col2 = st.columns(2)
+                        # Converte a série de dados para um dicionário para iterar
+                        detalhes = dados_equip_final.to_dict()
+                        # Divide os itens do dicionário para as duas colunas
+                        mid_point = len(detalhes) // 2
+
+                        with col1:
+                            for i, (label, value) in enumerate(detalhes.items()):
+                                if i < mid_point:
+                                    st.text(f"{label}: {value}")
+                        with col2:
+                            for i, (label, value) in enumerate(detalhes.items()):
+                                if i >= mid_point:
+                                    st.text(f"{label}: {value}")
+
+                        st.markdown("---")  # Linha divisória
+
+                        nome = st.text_input("Nome do Solicitante:")
+                        telefone = st.text_input("Telefone de Contacto:")
+                        tipo_problema = st.selectbox(
+                            "Tipo de Problema:",
+                            ["", "Ajuda aplicativo", "Suporte técnico", "Roubo", "Outros"]
+                        )
+                        relato = st.text_area("Breve relato do problema:")
+
+                        submitted = st.form_submit_button("✔️ Registar Chamado")
+
+                        if submitted:
+                            if nome and telefone and tipo_problema and relato:
+                                dados_formulario = {
+                                    "nome": nome,
+                                    "telefone": telefone,
+                                    "tipo_problema": tipo_problema,
+                                    "relato": relato
+                                }
+                                patrimonio_str = str(dados_equip_final.get('Patrimonio', 'N/A'))
+                                save_chamado(dados_equip_final, dados_formulario, municipio_col_name)
+                                st.success(
+                                    f"✅ Chamado para o equipamento de património **{patrimonio_str}** registado com sucesso!")
+
+                                st.session_state.equipamento_selecionado_index = "Selecione..."
+                                st.rerun()
+                            else:
+                                st.warning("⚠️ Por favor, preencha todos os campos do formulário.")
+            else:
+                st.warning("Nenhum equipamento encontrado para este município.")
+        else:
+            st.info("⬅️ Comece por selecionar um município na barra lateral.")
