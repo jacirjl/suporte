@@ -13,18 +13,78 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- ESTILO CSS PARA AJUSTAR A FONTE ---
+# --- ESTILO CSS PARA UMA INTERFACE MODERNA ---
 st.markdown("""
     <style>
-    .main, .stTextInput, .stTextArea, .stSelectbox {
-        font-size: 14px !important;
-    }
-    .stMetric {
-        font-size: 16px !important;
-    }
-    h3 {
-        font-size: 20px !important;
-    }
+        /* --- Fundo e Fonte Principal --- */
+        .stApp {
+            background-color: #F0F2F6;
+        }
+        .main {
+            font-size: 14px;
+        }
+
+        /* --- Títulos --- */
+        h1, h2, h3 {
+            color: #1E293B; /* Azul-escuro acinzentado */
+        }
+
+        /* --- Barra Lateral --- */
+        [data-testid="stSidebar"] {
+            background-color: #FFFFFF;
+            border-right: 1px solid #E2E8F0;
+        }
+
+        /* --- Formulário Principal como um "Card" --- */
+        div[data-testid="stForm"] {
+            background-color: #FFFFFF;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+
+        /* --- Grelha de Detalhes do Equipamento --- */
+        .details-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 20px; /* Espaçamento vertical e horizontal */
+            background-color: #F8FAFC;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #E2E8F0;
+            margin-bottom: 20px;
+        }
+        .details-grid .label {
+            font-weight: bold;
+            color: #475569; /* Cinza-azulado */
+        }
+        .details-grid .value {
+            color: #1E293B;
+        }
+
+        /* --- Botão de Submissão --- */
+        div[data-testid="stForm"] .stButton button {
+            background-color: #2563EB; /* Azul primário */
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            width: 100%;
+            transition: background-color 0.3s ease;
+            font-weight: bold;
+        }
+        div[data-testid="stForm"] .stButton button:hover {
+            background-color: #1D4ED8; /* Azul mais escuro no hover */
+        }
+        div[data-testid="stForm"] .stButton button:focus {
+            box-shadow: 0 0 0 3px #93C5FD; /* Foco azul claro */
+            outline: none;
+        }
+
+        /* --- Mensagens de Sucesso e Aviso --- */
+        div[data-testid="stSuccess"], div[data-testid="stWarning"] {
+            border-radius: 8px;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -109,7 +169,7 @@ def carregar_dados_do_db():
     """
     Carrega os dados da tabela 'equipamentos' da base de dados 'chamados.db'.
     """
-    DB_FILE_PATH = 'chamados.db'  # Alterado para usar a base de dados central
+    DB_FILE_PATH = 'chamados.db'
     TABLE_NAME = 'equipamentos'
 
     if not os.path.exists(DB_FILE_PATH):
@@ -119,7 +179,6 @@ def carregar_dados_do_db():
 
     try:
         conn = sqlite3.connect(DB_FILE_PATH)
-        # Verifica se a tabela 'equipamentos' existe na base de dados
         cursor = conn.cursor()
         cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{TABLE_NAME}';")
         if cursor.fetchone() is None:
@@ -128,7 +187,6 @@ def carregar_dados_do_db():
             conn.close()
             return None
 
-        # Lê todos os dados da tabela para um DataFrame
         df = pd.read_sql_query(f"SELECT * FROM {TABLE_NAME}", conn)
         conn.close()
         return df
@@ -145,7 +203,6 @@ df_equipamentos = carregar_dados_do_db()
 st.title("📝 Sistema de Registo de Ocorrências")
 st.markdown("### Selecione o equipamento e registe um novo chamado de serviço")
 
-# Exibe a mensagem de sucesso se ela existir na sessão e depois a limpa
 if 'success_message' in st.session_state and st.session_state.success_message:
     st.success(st.session_state.success_message)
     st.session_state.success_message = None
@@ -157,12 +214,10 @@ if df_equipamentos is not None:
         st.error(
             "ERRO CRÍTICO: A coluna de Municípios ('Município' ou 'Municipio') não foi encontrada na base de dados.")
     else:
-        # --- LÓGICA DE RESET APÓS SUBMISSÃO DO FORMULÁRIO ---
         if 'form_submitted' in st.session_state and st.session_state.form_submitted:
             st.session_state.equipamento_selecionado_index = "Selecione..."
             st.session_state.form_submitted = False
 
-        # --- BARRA LATERAL (SIDEBAR) PARA FILTROS ---
         st.sidebar.header("1. Filtro por Município")
 
 
@@ -179,7 +234,6 @@ if df_equipamentos is not None:
             key='municipio_selecionado_key'
         )
 
-        # --- ÁREA DE CONTEÚDO PRINCIPAL ---
         if st.session_state.get(
                 'municipio_selecionado_key') and st.session_state.municipio_selecionado_key != "Selecione...":
             municipio_selecionado = st.session_state.municipio_selecionado_key
@@ -209,7 +263,6 @@ if df_equipamentos is not None:
                     key='equipamento_selecionado_index'
                 )
 
-                # --- PASSO 3: FORMULÁRIO DE REGISTO ---
                 if st.session_state.get(
                         'equipamento_selecionado_index') and st.session_state.equipamento_selecionado_index != "Selecione...":
 
@@ -222,20 +275,12 @@ if df_equipamentos is not None:
                     with st.form(key=f"form_{indice_selecionado}", clear_on_submit=True):
                         st.markdown("**Detalhes do Equipamento Selecionado:**")
 
-                        col1, col2 = st.columns(2)
-                        detalhes = dados_equip_final.to_dict()
-                        mid_point = (len(detalhes) + 1) // 2
-
-                        with col1:
-                            for i, (label, value) in enumerate(detalhes.items()):
-                                if i < mid_point:
-                                    st.text(f"{label}: {value}")
-                        with col2:
-                            for i, (label, value) in enumerate(detalhes.items()):
-                                if i >= mid_point:
-                                    st.text(f"{label}: {value}")
-
-                        st.markdown("---")
+                        # Constrói uma grelha HTML para exibir os detalhes
+                        detalhes_html = "<div class='details-grid'>"
+                        for label, value in dados_equip_final.to_dict().items():
+                            detalhes_html += f"<div><span class='label'>{label}:</span> <span class='value'>{value}</span></div>"
+                        detalhes_html += "</div>"
+                        st.markdown(detalhes_html, unsafe_allow_html=True)
 
                         nome = st.text_input("Nome do Solicitante:")
                         telefone = st.text_input("Telefone de Contacto:")
@@ -243,7 +288,7 @@ if df_equipamentos is not None:
                             "Tipo de Problema:",
                             ["", "Ajuda aplicativo", "Suporte técnico", "Roubo", "Outros"]
                         )
-                        relato = st.text_area("Breve relato do problema:")
+                        relato = st.text_area("Breve relato do problema:", height=100)
 
                         submitted = st.form_submit_button("✔️ Registar Chamado")
 
@@ -258,9 +303,7 @@ if df_equipamentos is not None:
                                 patrimonio_str = str(dados_equip_final.get('Patrimonio', 'N/A'))
                                 save_chamado(dados_equip_final, dados_formulario, municipio_col_name)
 
-                                # Guarda a mensagem de sucesso na sessão
                                 st.session_state.success_message = f"✅ Chamado para o equipamento de património **{patrimonio_str}** registado com sucesso!"
-                                # Define a bandeira para indicar que o reset é necessário na próxima execução
                                 st.session_state.form_submitted = True
                                 st.rerun()
                             else:
