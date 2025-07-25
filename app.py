@@ -4,6 +4,7 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 from datetime import datetime
+import os
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
@@ -28,11 +29,11 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 
-# --- GESTÃO DA BASE DE DADOS SQLITE ---
+# --- GESTÃO DA BASE DE DADOS DE CHAMADOS ---
 
-def init_db():
+def init_chamados_db():
     """
-    Inicializa a base de dados SQLite e cria a tabela 'chamados' se não existir.
+    Inicializa a base de dados de chamados e cria a tabela se não existir.
     """
     conn = sqlite3.connect('chamados.db')
     c = conn.cursor()
@@ -98,41 +99,69 @@ def save_chamado(dados_equipamento, dados_formulario, municipio_col_name):
     conn.close()
 
 
-# Inicializa a base de dados no início da execução
-init_db()
+# Inicializa a base de dados de chamados no início da execução
+init_chamados_db()
 
 
-# --- CARREGAMENTO DOS DADOS DA PLANILHA ---
+# --- CARREGAMENTO DOS DADOS DA BASE DE DADOS DE EQUIPAMENTOS ---
 @st.cache_data
-def carregar_dados():
+def carregar_dados_do_db():
     """
-    Carrega os dados da planilha 'dados_equipamentos.csv', usando ponto e vírgula como separador.
+    Carrega os dados da tabela 'equipamentos' da base de dados 'chamados.db'.
     """
+    DB_FILE_PATH = 'chamados.db'  # Alterado para usar a base de dados central
+    TABLE_NAME = 'equipamentos'
+
+    if not os.path.exists(DB_FILE_PATH):
+        st.error(f"Erro: A base de dados '{DB_FILE_PATH}' não foi encontrada.")
+        st.info("Por favor, execute primeiro o script 'importar_dados.py' para criar e popular a base de dados.")
+        return None
+
     try:
-        df = pd.read_csv('dados_equipamentos.csv', sep=';', dtype=str)
-        df.columns = df.columns.str.strip()
+        conn = sqlite3.connect(DB_FILE_PATH)
+        # Verifica se a tabela 'equipamentos' existe na base de dados
+        cursor = conn.cursor()
+        cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{TABLE_NAME}';")
+        if cursor.fetchone() is None:
+            st.error(f"Erro: A tabela '{TABLE_NAME}' não foi encontrada na base de dados.")
+            st.info("Por favor, execute o script 'importar_dados.py' para importar os dados do seu CSV.")
+            conn.close()
+            return None
+
+        # Lê todos os dados da tabela para um DataFrame
+        df = pd.read_sql_query(f"SELECT * FROM {TABLE_NAME}", conn)
+        conn.close()
         return df
-    except FileNotFoundError:
-        st.error("Erro: O ficheiro 'dados_equipamentos.csv' não foi encontrado.")
-        return None
     except Exception as e:
-        st.error(f"Ocorreu um erro inesperado ao carregar o ficheiro CSV: {e}")
+        st.error(f"Ocorreu um erro ao ler a base de dados: {e}")
+        st.info("Verifique se a base de dados não está corrompida. Tente executar 'importar_dados.py' novamente.")
         return None
 
 
-df_equipamentos = carregar_dados()
+df_equipamentos = carregar_dados_do_db()
 
 # --- INTERFACE DO UTILIZADOR (UI) ---
 
 st.title("📝 Sistema de Registo de Ocorrências")
 st.markdown("### Selecione o equipamento e registe um novo chamado de serviço")
 
+# Exibe a mensagem de sucesso se ela existir na sessão e depois a limpa
+if 'success_message' in st.session_state and st.session_state.success_message:
+    st.success(st.session_state.success_message)
+    st.session_state.success_message = None
+
 if df_equipamentos is not None:
     municipio_col_name = next((name for name in ['Município', 'Municipio'] if name in df_equipamentos.columns), None)
 
     if not municipio_col_name:
-        st.error("ERRO CRÍTICO: A coluna de Municípios ('Município' ou 'Municipio') não foi encontrada no ficheiro.")
+        st.error(
+            "ERRO CRÍTICO: A coluna de Municípios ('Município' ou 'Municipio') não foi encontrada na base de dados.")
     else:
+        # --- LÓGICA DE RESET APÓS SUBMISSÃO DO FORMULÁRIO ---
+        if 'form_submitted' in st.session_state and st.session_state.form_submitted:
+            st.session_state.equipamento_selecionado_index = "Selecione..."
+            st.session_state.form_submitted = False
+
         # --- BARRA LATERAL (SIDEBAR) PARA FILTROS ---
         st.sidebar.header("1. Filtro por Município")
 
@@ -193,12 +222,9 @@ if df_equipamentos is not None:
                     with st.form(key=f"form_{indice_selecionado}", clear_on_submit=True):
                         st.markdown("**Detalhes do Equipamento Selecionado:**")
 
-                        # Exibe todos os campos do equipamento em duas colunas
                         col1, col2 = st.columns(2)
-                        # Converte a série de dados para um dicionário para iterar
                         detalhes = dados_equip_final.to_dict()
-                        # Divide os itens do dicionário para as duas colunas
-                        mid_point = len(detalhes) // 2
+                        mid_point = (len(detalhes) + 1) // 2
 
                         with col1:
                             for i, (label, value) in enumerate(detalhes.items()):
@@ -209,7 +235,7 @@ if df_equipamentos is not None:
                                 if i >= mid_point:
                                     st.text(f"{label}: {value}")
 
-                        st.markdown("---")  # Linha divisória
+                        st.markdown("---")
 
                         nome = st.text_input("Nome do Solicitante:")
                         telefone = st.text_input("Telefone de Contacto:")
@@ -231,10 +257,11 @@ if df_equipamentos is not None:
                                 }
                                 patrimonio_str = str(dados_equip_final.get('Patrimonio', 'N/A'))
                                 save_chamado(dados_equip_final, dados_formulario, municipio_col_name)
-                                st.success(
-                                    f"✅ Chamado para o equipamento de património **{patrimonio_str}** registado com sucesso!")
 
-                                st.session_state.equipamento_selecionado_index = "Selecione..."
+                                # Guarda a mensagem de sucesso na sessão
+                                st.session_state.success_message = f"✅ Chamado para o equipamento de património **{patrimonio_str}** registado com sucesso!"
+                                # Define a bandeira para indicar que o reset é necessário na próxima execução
+                                st.session_state.form_submitted = True
                                 st.rerun()
                             else:
                                 st.warning("⚠️ Por favor, preencha todos os campos do formulário.")
